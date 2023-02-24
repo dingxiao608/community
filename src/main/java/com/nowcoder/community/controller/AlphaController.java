@@ -1,14 +1,30 @@
 package com.nowcoder.community.controller;
 
+import com.nowcoder.community.dao.DiscussPostMapper;
+import com.nowcoder.community.dao.UserMapper;
+import com.nowcoder.community.entity.DiscussPost;
+import com.nowcoder.community.entity.User;
 import com.nowcoder.community.service.AlphaService;
+import com.nowcoder.community.service.UserService;
+import com.nowcoder.community.utils.CommunityUtil;
+import javafx.animation.TranslateTransition;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.ModelAndView;
 
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.*;
@@ -19,6 +35,15 @@ public class AlphaController {
 
     @Autowired
     private AlphaService alphaService;
+
+    @Autowired
+    private UserMapper userMapper;
+
+    @Autowired
+    private DiscussPostMapper discussPostMapper;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     @RequestMapping("/hello")
     @ResponseBody
@@ -122,4 +147,114 @@ public class AlphaController {
         list.add(map);
         return list;
     }
+
+    //测试cookie
+    @RequestMapping(path = "/cookie/set", method = RequestMethod.GET)
+    @ResponseBody
+    public String setCookie(HttpServletResponse response){
+        //创建cookie
+        Cookie cookie = new Cookie("code", CommunityUtil.generateUUID());
+        //设置cookie生效范围（在/community/alpha及其子路径下，cookie才会生效）
+        cookie.setPath("/community/alpha");
+        //设置cookie生存时间
+        //cookie默认存储在浏览器的内存里，关闭了浏览器，cookie就失效了。给cookie设置了生存时间，它就会存在硬盘里，长期有效，直到超过生存时间
+        cookie.setMaxAge(60 * 10);  //10分钟有效
+        //发送cookie
+        response.addCookie(cookie);
+
+        return "set cookie success";
+    }
+
+    @RequestMapping(path = "/cookie/get", method = RequestMethod.GET)
+    @ResponseBody
+    public String getCookie(@CookieValue("code") String code){
+        System.out.println(code);
+        return "get cookie success";
+    }
+
+
+    //测试session
+    @RequestMapping(path = "/session/set", method = RequestMethod.GET)
+    @ResponseBody
+    public String setSession(HttpSession session){
+        session.setAttribute("id", 1);
+        session.setAttribute("name", "tom");
+        return "set session success";
+    }
+
+    @RequestMapping(path = "/session/get", method = RequestMethod.GET)
+    @ResponseBody
+    public String getSession(HttpSession session){
+        System.out.println(session.getAttribute("id"));
+        System.out.println(session.getAttribute("name"));
+        return "get session success";
+    }
+
+    //ajax实例
+    @RequestMapping(path = "/ajax", method = RequestMethod.POST)
+    @ResponseBody//因为是异步请求，给浏览器返回的是字符串，而不是html页面
+    public String testAjax(String name, int age){
+        System.out.println(name);
+        System.out.println(age);
+        return CommunityUtil.getJSONString(0, "操作成功!");
+    }
+
+    //测试事务
+    @Transactional(isolation = Isolation.READ_COMMITTED, propagation = Propagation.REQUIRED)
+    public Object save1(){
+        //新增用户
+        User user = new User();
+        user.setUsername("alpha");
+        user.setSalt(CommunityUtil.generateUUID().substring(0, 5));
+        user.setPassword(CommunityUtil.md5("123" + user.getSalt()));
+        user.setEmail("555555@qq.com");
+        user.setHeaderUrl("http://image.nowcoder.com/head/99t.png");
+        user.setCreateTime(new Date());
+        userMapper.insertUser(user);
+
+        //新增帖子
+        DiscussPost discussPost = new DiscussPost();
+        discussPost.setUserId(user.getId());
+        discussPost.setTitle("hello");
+        discussPost.setContent("新用户报道！");
+        discussPost.setCreateTime(new Date());
+        discussPostMapper.insetDiscussPost(discussPost);
+
+        Integer.valueOf("abc");//抛出异常
+
+        return "ok";
+    }
+
+    public Object save2(){
+        transactionTemplate.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
+        
+        return transactionTemplate.execute(new TransactionCallback<Object>() {
+            @Override
+            public Object doInTransaction(TransactionStatus status) {
+                //新增用户
+                User user = new User();
+                user.setUsername("beta");
+                user.setSalt(CommunityUtil.generateUUID().substring(0, 5));
+                user.setPassword(CommunityUtil.md5("123" + user.getSalt()));
+                user.setEmail("beta@qq.com");
+                user.setHeaderUrl("http://image.nowcoder.com/head/99t.png");
+                user.setCreateTime(new Date());
+                userMapper.insertUser(user);
+
+                //新增帖子
+                DiscussPost discussPost = new DiscussPost();
+                discussPost.setUserId(user.getId());
+                discussPost.setTitle("beta");
+                discussPost.setContent("新用户beta报道！");
+                discussPost.setCreateTime(new Date());
+                discussPostMapper.insetDiscussPost(discussPost);
+
+                Integer.valueOf("abc");//抛出异常
+
+                return "ok";
+            }
+        });
+    }
+
 }

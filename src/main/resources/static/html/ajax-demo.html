@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AJAX</title>
+</head>
+<body>
+    <p>
+        <input type="button" value="发送" onclick="send();">
+    </p>
+
+    <script src="https://code.jquery.com/jquery-3.3.1.min.js" crossorigin="anonymous"></script><!--实现上面的send()方法需要引入jQuery-->
+    <script>
+        function send(){
+            /*
+            jquery发送异步请求很简单，如果要发送get请求就 $.get，post请求就 $.post，还有一种 $.ajax这种方法比较复杂（可以配置get或post）。
+            $.post后面的()里配置该方法的参数，
+                第一个参数是访问路径："/community/alpha/ajax"；
+                第二个参数是向服务器提交的数据：{"name":"张三","age":"23"}
+                第三个参数是匿名的回调函数（函数没有名字）：当服务器给浏览器做出响应，并且浏览器得到响应后会调用回调函数，并且把服务器返回的数据创给下面的参数data
+            */
+            $.post(
+                "/community/alpha/ajax",
+                {"name":"张三","age":"23"},
+                function (data) {
+                    console.log(typeof (data));
+                    console.log(data);
+
+                    data = $.parseJSON(data);       /*将字符串转化为js对象，然后可以根据属性（key）获取值*/
+                    console.log(typeof (data));
+                    console.log(data.code);
+                    console.log(data.msg);
+                }
+            );
+        }
+    </script>
+</body>
+</html>
