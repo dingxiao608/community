@@ -4,18 +4,18 @@ import com.google.code.kaptcha.Producer;
 import com.nowcoder.community.entity.User;
 import com.nowcoder.community.service.UserService;
 import com.nowcoder.community.utils.CommunityConstant;
+import com.nowcoder.community.utils.CommunityUtil;
 import com.nowcoder.community.utils.MailClient;
+import com.nowcoder.community.utils.RedisKeyUtil;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.CookieValue;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.*;
 import org.thymeleaf.TemplateEngine;
 
 import javax.imageio.ImageIO;
@@ -27,6 +27,7 @@ import javax.servlet.http.HttpSession;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @Controller
 public class LoginController implements CommunityConstant {
@@ -42,6 +43,9 @@ public class LoginController implements CommunityConstant {
 
     @Autowired
     private Producer kaptchaProducer;
+
+    @Autowired
+    private RedisTemplate redisTemplate;
 
     //跳转到注册页面
     @RequestMapping(path = "/register", method = RequestMethod.GET)
@@ -91,13 +95,22 @@ public class LoginController implements CommunityConstant {
 
     //生成验证码，并存储在服务器的session里
     @RequestMapping(path = "/kaptcha", method = RequestMethod.GET)
-    public void getKaptcha(HttpServletResponse response, HttpSession session){
+    public void getKaptcha(HttpServletResponse response/*, HttpSession session*/){
         //生成验证码
         String text = kaptchaProducer.createText();
         BufferedImage image = kaptchaProducer.createImage(text);
 
         //将验证码存入session（session存在服务器端，方便客户端输入验证码时来对比）
-        session.setAttribute("kaptcha", text);
+        //session.setAttribute("kaptcha", text);
+
+        String kaptchaOwner = CommunityUtil.generateUUID();
+        Cookie cookie = new Cookie("kaptchaOwner", kaptchaOwner);
+        cookie.setMaxAge(60); // 60s过期
+        cookie.setPath(contextPath);
+        response.addCookie(cookie);
+
+        String kaptchaKey = RedisKeyUtil.getKaptchaKey(kaptchaOwner);
+        redisTemplate.opsForValue().set(kaptchaKey, text, 60, TimeUnit.SECONDS); // redis中设置该key60s过期
 
         //将图片输出给浏览器
         try {
@@ -111,9 +124,16 @@ public class LoginController implements CommunityConstant {
     //登录
     @RequestMapping(path = "/login", method = RequestMethod.POST)
     public String login(String username, String password, String code, boolean rememberme,//code验证码，rememberme页面是否勾选“记住我”
-                        Model model, HttpSession session, HttpServletResponse response){//session要用来验证浏览器输入的验证码是否服务器存储的验证码一样，ticket存入cookie通过response返回给浏览器
+                        Model model, /*HttpSession session, */HttpServletResponse response,
+                        @CookieValue("kaptchaOwner") String kaptchaOwner){//session要用来验证浏览器输入的验证码是否服务器存储的验证码一样，ticket存入cookie通过response返回给浏览器
         //检查验证码（因为验证码在表现层（网页上可见），所以不写在service里面）
-        String kaptcha = (String) session.getAttribute("kaptcha");
+        //String kaptcha = (String) session.getAttribute("kaptcha");
+        String kaptcha = null;
+        if (StringUtils.isNotBlank(kaptchaOwner)){
+            String kaptchaKey = RedisKeyUtil.getKaptchaKey(kaptchaOwner);
+            kaptcha = (String)redisTemplate.opsForValue().get(kaptchaKey);
+        }
+
         if (StringUtils.isBlank(code) ||  StringUtils.isBlank(kaptcha) || !code.equalsIgnoreCase(kaptcha)){
             model.addAttribute("codeMsg", "验证码不正确！");
             return "site/login";
@@ -150,14 +170,15 @@ public class LoginController implements CommunityConstant {
     }
 
     //修改密码——发送验证码部分：在假设能够获取邮箱的情况下
-    @RequestMapping(path = "/getCode", method = RequestMethod.GET)
-    public void getCode(HttpSession session, HttpServletResponse response){
+    @RequestMapping(path = "/getCode", method = RequestMethod.POST)
+    @ResponseBody
+    public void getCode(HttpSession session, String email){
         //先判断邮箱是否存在
 
         String kaptcha = kaptchaProducer.createText();
         session.setAttribute("kaptcha", kaptcha);
 
-        userService.sendKaptchaMail("1417359341@qq.com", "修改密码", "修改密码所需要的验证码为：" + kaptcha);
+        userService.sendKaptchaMail(email, "修改密码", "修改密码所需要的验证码为：" + kaptcha);
     }
 
     //修改密码——根据表单提交的数据修改密码

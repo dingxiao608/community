@@ -29,6 +29,9 @@ public class ServiceLogAspect {
     public void before(JoinPoint joinPoint){//自动注入连接点参数，即被调用的service组件的相应方法
         // 日志格式
         ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attributes == null){
+            return;
+        }
         HttpServletRequest request = attributes.getRequest();//手动获取请求，这里不能通过参数的自动封装获取请求
         String ip = request.getRemoteHost();
         String date = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
